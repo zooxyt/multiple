@@ -1,0 +1,3 @@
+#!/bin/bash
+ANALYZER="`which clang`"
+scan-build -k -V --use-analyzer $ANALYZER make

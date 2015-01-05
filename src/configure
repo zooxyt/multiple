@@ -1,0 +1,494 @@
+#!/usr/bin/env python
+# -*- coding=utf-8 -*-
+
+# Makefile generator for multiple
+# Copyright(C) 2014 Cheryl Natsu
+
+import os
+import platform
+import subprocess
+import re
+import sys
+
+
+# Basic Settings
+
+CC = "$(CC)"
+CFLAGS = "$(BUILD_FLAGS) $(CFLAGS)"
+BUILD_PREFIX = CC + " " + CFLAGS + " "
+
+SEPERATE_LINE = '#--------------------------------------------------------------------------'
+PATH_CURRENT = os.path.split(os.path.realpath(__file__))[0] + os.sep
+Makefile_pathname = PATH_CURRENT + "Makefile"
+frontend_header_pathname = PATH_CURRENT + 'core' + os.sep + 'multiple_frontend.h'
+if os.path.isfile(frontend_header_pathname):
+    os.remove(frontend_header_pathname)
+
+NAMES_LIB = ['lib']
+NAMES_LANG = 'lang'
+NAMES_TOOLS = 'tools'
+
+NAMES_MODULES = ['core', 'vm', 'gc', 'misc']
+NAMES_SPECIAL = ['special']
+
+def c_to_o(pathname):
+    name = pathname[0:len(pathname) - 2] + '.o'
+    return name
+
+
+# Initial Values
+
+LANG_DIR = PATH_CURRENT + NAMES_LANG + os.sep
+TOOLS_DIR = PATH_CURRENT + NAMES_TOOLS + os.sep
+SPECIFIC_LANG_DIR = ' -I.' + '/'
+for item in NAMES_MODULES:
+    SPECIFIC_LANG_DIR += ' -I.' + '/' + item + '/'
+for item in os.listdir(LANG_DIR):
+    if os.path.isdir(LANG_DIR + '/' + item):
+        SPECIFIC_LANG_DIR += " -I." + '/' + NAMES_LANG + '/' + item + '/'
+for item in os.listdir(TOOLS_DIR):
+    if os.path.isdir(TOOLS_DIR + '/' + item):
+        SPECIFIC_LANG_DIR += " -I." + '/' + NAMES_TOOLS + '/' + item + '/'
+SPECIFIC_LANG_DIR += " "
+
+
+# Useful Tools
+
+def exec_output(cmdline):
+    p = subprocess.Popen(cmdline, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    output = p.stdout.read()
+    return output
+
+def exec_output_stderr(cmdline):
+    p = subprocess.Popen(cmdline, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    output = p.stderr.read()
+    return output
+
+def objects(path):
+    result = []
+    for item in os.listdir(path):
+        if os.path.isfile(path + item):
+            if item.endswith('.c'):
+                name = os.path.basename(item)
+                result.append(c_to_o(name))
+    return result
+
+def objects_line(subfolder):
+    path = PATH_CURRENT + subfolder + os.sep
+    line = 'OBJS_' + subfolder.upper() + " = "
+    objs = objects(path)
+    for item in objs:
+        line += ''.join(['./', subfolder, "/", item, " "])
+    line += "\n"
+    return line
+
+def objects_line_2(prefix, item):
+    path = PATH_CURRENT + prefix + os.sep + item + os.sep
+    line = 'OBJS_' + prefix.upper() + '_' + item.upper() + " = "
+    objs = objects(path)
+    for item2 in objs:
+        line += ''.join(['./', prefix, '/', item, '/', item2, " "])
+    line += "\n"
+    return line
+
+def depends_line(subfolder, D):
+    path = PATH_CURRENT + subfolder + os.sep
+    line = r'''
+'''
+    for item in os.listdir(path):
+        if os.path.isfile(path + item):
+            if item.endswith('.c'):
+                print ''.join(['Scanning ', subfolder, '/', item])
+                name_o = c_to_o(os.path.basename(item))
+                #cmd = ''.join(["gcc -MM ", D, '.', os.sep, subfolder, os.sep, item])
+                cmd = ''.join(["gcc -MM ", D, '.', '/', subfolder, '/', item])
+                result = exec_output(cmd)
+                if len(result) == 0:
+                    print("Error occurred while executing: " + cmd) 
+                    print
+                    print(exec_output_stderr(cmd))
+                    sys.exit()
+                result = re.sub("\r\n", '\n', result)
+                line += ''.join(['./', subfolder, '/', result])
+                line += ''.join(['\t@echo Building ', subfolder, '/', item, '\n'])
+                line += "\t@" + BUILD_PREFIX + D + " -o " + '.' + os.sep + subfolder + os.sep + name_o + " -c " + '.' + os.sep + subfolder + os.sep + item + '\n'
+                line += '\n'
+    return line
+
+def depends_line_2(prefix, lang_name, D):
+    path = PATH_CURRENT + prefix + os.sep + lang_name + os.sep
+    line = r'''
+'''
+    for item in os.listdir(path):
+        if os.path.isfile(path + item):
+            if item.endswith('.c'):
+                print ''.join(['Scanning ', prefix, '/', lang_name, '/', item])
+                name_o = c_to_o(os.path.basename(item))
+                cmd = ''.join(["gcc -MM ", D, '.', os.sep, prefix, os.sep, lang_name, os.sep, item])
+                result = exec_output(cmd)
+                if len(result) == 0:
+                    print("Error occurred while executing: " + cmd) 
+                    print
+                    print(exec_output_stderr(cmd))
+                    sys.exit()
+                result = re.sub("\r\n", '\n', result)
+                line += ''.join(['./', prefix, '/', lang_name, '/', result])
+                line += ''.join(['\t@echo Building ', prefix, '/', lang_name, '/', item,  '\n'])
+                line += "\t@" + BUILD_PREFIX + D
+                line += " -o " + '.' + os.sep + prefix + os.sep + lang_name + os.sep + name_o 
+                line += " -c " + '.' + os.sep + prefix + os.sep + lang_name + os.sep + item + '\n'
+                line += '\n'
+    return line
+
+
+# Templates
+
+template_head = r'''#  Makefile of the entire project
+''' + SEPERATE_LINE + r'''
+PREFIX = /opt/multiple
+OBJS_INTERPRETER_BODY = ./special/main.o ./special/argsparse.o
+OBJS_LIB_BODY = ./special/aslib.o
+''' + SEPERATE_LINE + '''
+'''
+
+template_objs = ""
+for subfolder in NAMES_MODULES:
+    template_objs += objects_line(subfolder)
+if NAMES_LANG != '':
+    for lang_name in os.listdir(NAMES_LANG):
+        template_objs += objects_line_2(NAMES_LANG, lang_name)
+if NAMES_TOOLS != '':
+    for tool_name in os.listdir(NAMES_TOOLS):
+        template_objs += objects_line_2(NAMES_TOOLS, tool_name)
+
+template_objs += SEPERATE_LINE + r'''
+OBJS_MULTIPLE = '''
+for subfolder in NAMES_MODULES:
+    template_objs += ''.join(['$(OBJS_', subfolder.upper(), ') '])
+if NAMES_LANG != '':
+    for lang_name in os.listdir(NAMES_LANG):
+        template_objs += ''.join(['$(OBJS_', NAMES_LANG.upper(), '_', lang_name.upper(), ') '])
+if NAMES_TOOLS != '':
+    for lang_name in os.listdir(NAMES_TOOLS):
+        template_objs += ''.join(['$(OBJS_', NAMES_TOOLS.upper(), '_', lang_name.upper(), ') '])
+template_objs += '\n'
+
+template_objs += SEPERATE_LINE + r'''
+OBJS_INTERPRETER = $(OBJS_INTERPRETER_BODY) $(OBJS_MULTIPLE)
+OBJS_SHARED = $(OBJS_LIB_BODY) $(OBJS_MULTIPLE)
+OBJS_STATIC = $(OBJS_LIB_BODY) $(OBJS_MULTIPLE)
+''' + SEPERATE_LINE  + r'''
+MAKE = make
+MAKE_FLAGS = --no-print-directory
+LIBS = 
+PROJECT_NAME = multiple
+TARGET_INTERPRETER_UNIX = $(PROJECT_NAME)-bin
+TARGET_INTERPRETER_UNIX_WRAP = $(PROJECT_NAME)
+TARGET_INTERPRETER_WIN32 = $(PROJECT_NAME).exe
+TARGET_SHARED_UNIX = lib$(PROJECT_NAME).so
+TARGET_SHARED_WIN32 = lib$(PROJECT_NAME).dll
+TARGET_SHARED = 
+TARGET_STATIC = lib$(PROJECT_NAME).a
+TARGET = 
+CC = gcc
+CP_UNIX = cp
+CP_WIN32 = copy
+CP = 
+STRIP = strip
+RM_UNIX = rm -f
+RM_WIN32 = rm -f
+RM = 
+MKDIR_UNIX = mkdir -p
+MKDIR_WIN32 = mkdir -p
+MKDIR = 
+RMDIR_UNIX = rmdir
+RMDIR_WIN32 = rmdir
+RMDIR = 
+LINK_FLAGS_UNIX = -ldl -lpthread
+LINK_FLAGS_WIN32 = -lmingw32 -lpsapi
+LINK_FLAGS =
+CFLAGS_UNIX = -DUNIX
+CFLAGS_WIN32 = -DWINDOWS
+CFLAGS = 
+
+EXTRA_CHECK = 
+SECURITY_CHECK = -Wall -Wextra \
+        -Wformat=2 -Wstrict-aliasing=2 \
+        -Wcast-align -Wwrite-strings -Wformat-nonliteral \
+        -Wconversion -Wfloat-equal -Wpointer-arith \
+        -Wswitch-enum $(EXTRA_CHECK)
+DEBUG_CFLAGS = $(SECURITY_CHECK) -g
+RELEASE_CFLAGS = $(SECURITY_CHECK) -O3
+PROF_CFLAGS = $(SECURITY_CHECK) -g -pg
+
+INTERPRETER_CFLAGS = 
+
+SHARED_CFLAGS_UNIX = -fPIC
+SHARED_CFLAGS_WIN32 = 
+SHARED_CFLAGS = 
+
+SHARED_LD_UNIX = -shared
+SHARED_LD_WIN32 = -shared
+SHARED_LD = 
+
+STATIC_CFLAGS_UNIX = -fPIC
+STATIC_CFLAGS_WIN32 = 
+STATIC_CFLAGS = 
+
+STATIC_LD_UNIX = 
+STATIC_LD_WIN32 = 
+STATIC_LD = 
+
+AR = ar
+AR_FLAGS = -cr
+
+ifdef SystemRoot
+    LINK_FLAGS = $(LINK_FLAGS_WIN32)
+    TARGET_INTERPRETER = $(TARGET_INTERPRETER_WIN32)
+    TARGET_SHARED = $(TARGET_SHARED_WIN32)
+    CFLAGS = $(CFLAGS_WIN32)
+    SHARED_CFLAGS = $(SHARED_CFLAGS_WIN32)
+    STATIC_CFLAGS = $(STATIC_CFLAGS_WIN32)
+    SHARED_LD = $(SHARED_LD_WIN32)
+    STATIC_LD = $(STATIC_LD_WIN32)
+    RM = $(RM_WIN32)
+    MKDIR = $(MKDIR_WIN32)
+    RMDIR = $(RMDIR_WIN32)
+    CP = $(CP_WIN32)
+    FixPath = $(subst /,\,$1)
+else
+    UNAME_RESULT = $(shell uname)
+    ifeq ($(UNAME_RESULT), MINGW32_NT-6.1)
+        LINK_FLAGS = $(LINK_FLAGS_WIN32)
+        TARGET_INTERPRETER = $(TARGET_INTERPRETER_WIN32)
+        TARGET_SHARED = $(TARGET_SHARED_WIN32)
+        CFLAGS = $(CFLAGS_WIN32)
+        SHARED_CFLAGS = $(SHARED_CFLAGS_WIN32)
+        STATIC_CFLAGS = $(STATIC_CFLAGS_WIN32)
+        SHARED_LD = $(SHARED_LD_WIN32)
+        STATIC_LD = $(STATIC_LD_WIN32)
+        RM = $(RM_WIN32)
+        MKDIR = $(MKDIR_WIN32)
+        RMDIR = $(RMDIR_WIN32)
+        CP = $(CP_WIN32)
+        FixPath = $(subst /,\,$1)
+    else
+        ifeq ($(UNAME_RESULT), Linux)
+            LINK_FLAGS = $(LINK_FLAGS_UNIX)
+            TARGET_INTERPRETER = $(TARGET_INTERPRETER_UNIX)
+            TARGET_SHARED = $(TARGET_SHARED_UNIX)
+            CFLAGS = $(CFLAGS_UNIX)
+            SHARED_CFLAGS = $(SHARED_CFLAGS_UNIX)
+            STATIC_CFLAGS = $(STATIC_CFLAGS_UNIX)
+            SHARED_LD = $(SHARED_LD_UNIX)
+            STATIC_LD = $(STATIC_LD_UNIX)
+            RM = $(RM_UNIX)
+            MKDIR = $(MKDIR_UNIX)
+            RMDIR = $(RMDIR_UNIX)
+            CP = $(CP_UNIX)
+            FixPath = $1
+        endif
+    endif
+endif
+''' + SEPERATE_LINE + r'''
+default : all
+all :
+	@${MAKE} $(MAKE_FLAGS) targets_shared BUILD_FLAGS="$(DEBUG_CFLAGS) $(SHARED_CFLAGS)"
+	@${MAKE} $(MAKE_FLAGS) targets_static BUILD_FLAGS="$(DEBUG_CFLAGS) $(SHARED_CFLAGS)"
+	@${MAKE} $(MAKE_FLAGS) targets_interpreter BUILD_FLAGS="$(DEBUG_CFLAGS)"
+release :
+	@${MAKE} $(MAKE_FLAGS) targets_shared BUILD_FLAGS="$(RELEASE_CFLAGS) $(SHARED_CFLAGS)"
+	@${MAKE} $(MAKE_FLAGS) targets_static BUILD_FLAGS="$(RELEASE_CFLAGS) $(STATIC_CFLAGS)"
+	@${MAKE} $(MAKE_FLAGS) targets_interpreter BUILD_FLAGS="$(RELEASE_CFLAGS)"
+prof :
+	@${MAKE} $(MAKE_FLAGS) targets_shared BUILD_FLAGS="$(PROF_CFLAGS) $(SHARED_CFLAGS)"
+	@${MAKE} $(MAKE_FLAGS) targets_static BUILD_FLAGS="$(PROF_CFLAGS) $(STATIC_CFLAGS)"
+	@${MAKE} $(MAKE_FLAGS) targets_interpreter BUILD_FLAGS="$(PROF_CFLAGS)"
+interpreter_prof :
+	@${MAKE} $(MAKE_FLAGS) targets_interpreter BUILD_FLAGS="$(PROF_CFLAGS)"
+interpreter_debug :
+	@${MAKE} $(MAKE_FLAGS) targets_interpreter BUILD_FLAGS="$(DEBUG_CFLAGS)"
+interpreter_release :
+	@${MAKE} $(MAKE_FLAGS) targets_interpreter BUILD_FLAGS="$(RELEASE_CFLAGS)"
+shared :
+	@${MAKE} $(MAKE_FLAGS) targets_shared BUILD_FLAGS="$(DEBUG_CFLAGS) $(SHARED_CFLAGS)"
+static:
+	@${MAKE} $(MAKE_FLAGS) targets_static BUILD_FLAGS="$(DEBUG_CFLAGS) $(STATIC_CFLAGS)"
+targets_interpreter : $(OBJS_INTERPRETER)
+	@echo Building Launcher
+	@$(CC) $(BUILD_FLAGS) -o $(TARGET_INTERPRETER) $(OBJS_INTERPRETER) $(LIBS) $(LINK_FLAGS)
+targets_shared : $(OBJS_SHARED)
+	@echo Building Shared Library
+	@$(CC) $(SHARED_LD) -o $(TARGET_SHARED) $(OBJS_SHARED) $(LIBS) $(LINK_FLAGS) 
+targets_static : $(OBJS_STATIC)
+	@echo Building Static Library
+	@$(AR) $(AR_FLAGS) -o $(TARGET_STATIC) $(OBJS_STATIC) 
+''' + SEPERATE_LINE + r'''
+'''
+
+template_tail = SEPERATE_LINE + r'''
+
+.PHONY: clean cleanobj
+
+install :
+	@# Directories
+	$(MKDIR) -p $(PREFIX)
+	$(MKDIR) -p $(PREFIX)/lib
+
+	@# Copy Launcher
+	$(CP) $(TARGET_INTERPRETER_UNIX) $(PREFIX)
+	$(CP) $(TARGET_INTERPRETER_UNIX_WRAP) $(PREFIX)
+
+	@# Copy Libraries
+	$(CP) $(TARGET_SHARED_UNIX) $(PREFIX)/lib/
+	$(CP) ./lib/*.moo ./lib/*.so $(PREFIX)/lib/
+	$(CP) $(TARGET_SHARED_UNIX) /usr/lib/
+
+	@# Prompt
+	@echo "Finished installing."
+	@echo "please add the following line into one of your startup scripts (.bashrc, profile or rc.local):"
+	@echo "PATH=$(PREFIX)/:\$$PATH"
+
+uninstall :
+	# Binary & Libs
+	$(RM) $(PREFIX)/lib/*.moo
+	$(RM) $(PREFIX)/lib/*.so
+	$(RMDIR) -rf $(PREFIX)/lib/
+	$(RM) $(PREFIX)/$(TARGET_INTERPRETER_UNIX)
+	$(RM) $(PREFIX)/$(TARGET_INTERPRETER_UNIX_WRAP)
+	$(RMDIR) $(PREFIX)
+
+clean :
+	@for i in $(OBJS_LIB_BODY); do \
+	    if test -e $$i ; then \
+	    echo "Deleting $$i"; \
+	    $(RM) $$i; \
+	    fi; \
+	done;
+
+	@for i in $(OBJS_INTERPRETER_BODY); do \
+	    if test -e $$i ; then \
+	    echo "Deleting $$i"; \
+	    $(RM) $$i; \
+	    fi; \
+	done;
+
+	@for i in $(OBJS_MULTIPLE); do \
+	    if test -e $$i ; then \
+	    echo "Deleting $$i"; \
+	    $(RM) $$i; \
+	    fi; \
+	done;
+
+	@for i in $(TARGET_INTERPRETER); do \
+	    if test -e $$i ; then \
+	    echo "Deleting $$i"; \
+	    $(RM) $$i; \
+	    fi; \
+	done;
+
+	@for i in $(TARGET_SHARED); do \
+	    if test -e $$i ; then \
+	    echo "Deleting $$i"; \
+	    $(RM) $$i; \
+	    fi; \
+	done;
+
+	@for i in $(TARGET_STATIC); do \
+	    if test -e $$i ; then \
+	    echo "Deleting $$i"; \
+	    $(RM) $$i; \
+	    fi; \
+	done;
+
+	@if test -e gmon.out ; then \
+	echo "Deleting gmon.out"; \
+	$(RM) gmon.out; \
+	fi; \
+
+'''
+
+
+frontend_head = r"""/* Frontends
+ * Copyright(C) 2013-2014 Cheryl Natsu
+ *
+ *  This file is part of multiple - Multple Paradigm Language Emulator
+ *
+ *  multiple is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  multiple is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program.  If not, see <http://www.gnu.org/licenses/>. 
+ */
+
+#ifndef _MULTIPLE_FRONTEND_H_
+#define _MULTIPLE_FRONTEND_H_
+
+"""
+
+frontend_mid = ""
+
+if NAMES_LANG != '':
+    for lang_name in os.listdir(NAMES_LANG):
+        #frontend_mid += '#include "./lang/' + lang_name + '/' + lang_name + '_stub.h\"\n'
+        frontend_mid += '#include \"' + lang_name + '_stub.h\"\n'
+
+frontend_tail = r"""
+#endif
+
+"""
+
+def main():
+    global frontend_header_pathname 
+
+    f = open(frontend_header_pathname, "wb+")
+    f.write(frontend_head)
+    f.write(frontend_mid)
+    f.write(frontend_tail)
+    f.close()
+
+    D = ""
+    if platform.system() == "Windows":
+        D += "-DWINDOWS"
+    elif platform.system() == "Linux":
+        D += "-DUNIX"
+    D += SPECIFIC_LANG_DIR 
+    print "Generating \'" + Makefile_pathname + "\'"
+
+    template_body = SEPERATE_LINE + r'''
+    '''
+    for item in NAMES_MODULES:
+        result = depends_line(item, D)
+        template_body += result
+    for item in NAMES_SPECIAL:
+        result = depends_line(item, D)
+        template_body += result
+    if NAMES_LANG != '':
+        for lang_name in os.listdir(NAMES_LANG):
+            result = depends_line_2(NAMES_LANG, lang_name, D)
+            template_body += result
+    if NAMES_TOOLS != '':
+        for lang_name in os.listdir(NAMES_TOOLS):
+            result = depends_line_2(NAMES_TOOLS, lang_name, D)
+            template_body += result
+
+    f = open(Makefile_pathname, "wb+")
+    f.write(template_head)
+    f.write(template_objs)
+    f.write(template_body)
+    f.write(template_tail)
+    f.close()
+
+
+
+if __name__ == '__main__':
+    main()
+
+

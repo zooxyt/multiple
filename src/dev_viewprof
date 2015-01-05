@@ -1,0 +1,2 @@
+#!/bin/bash
+gprof -b multiple-bin gmon.out | less

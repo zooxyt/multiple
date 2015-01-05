@@ -1,0 +1,15 @@
+#!/bin/bash
+SCRIPT_PATH="`readlink -f "$0"`"
+HERE="`dirname "$SCRIPT_PATH"`"
+LD_LIBRARY_PATH="$HERE:$HERE/lib:$LD_LIBRARY_PATH"
+export LD_LIBRARY_PATH
+LD_PRELOAD="/lib/x86_64-linux-gnu/libpthread.so.0 gdb"
+export LD_PRELOAD
+filename=$HERE/multiple-bin
+if [ -e $filename ]
+then
+    exec -a "$0" "valgrind" "--leak-check=full" "$filename"  "$@"
+else
+    echo "error: execute 'make' to compile the project before using"
+fi
+
